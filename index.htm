@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Arduboy Web Player</title>
+	<meta http-equiv="Content-type" content="text/html;charset=UTF-8" />
+	<meta name="viewport" content="width=750" />
+	<meta name="buildDate" content="2017-1-24" />
+	<meta property="og:url" content="https://teamarg.github.io/ATMwebplayer/" />
+	<meta property="og:type" content="website" /> 
+	<link rel="stylesheet" type="text/css" href="css/textstyles.css" />
+	<script type="text/javascript" src="js/imageCode.js">
+	</script>
+	<link rel="stylesheet" type="text/css" href="css/pagestyle.css?3.568126e+9" />
+	<style type="text/css">
+	div.container {min-height: 1070px;}.shape_18 {background: url('images/shape_18.png') no-repeat;}@media only screen and (-moz-min-device-pixel-ratio: 1.5), only screen and (-o-min-device-pixel-ratio: 3/2), only screen and (-webkit-min-device-pixel-ratio: 1.5), only screen and (min-devicepixel-ratio: 1.5), only screen and (min-resolution: 1.5dppx) {.shape_18 {background: url('images/shape_18@2x.png') no-repeat;background-size: 702px 162px;}}
+	</style>
+
+
+
+	<script src="js/squawksynth.js"></script>
+	<script src="js/webaudio.js"></script>
+	<script src="js/converter.js"></script>
+	<script src="js/squawkstream.js"></script>
+
+	<script language="JavaScript">
+
+      // Configuration
+      var emulateSampleRate = 16000.0;  // Emulation sample rate
+      var masterVolume      = 1.0;      // Master volume
+
+      var player;    // B) Reads music data, controls synthesizer =>
+      var synth;     // C) Oscillators generate samples, sends them to converter =>
+      var converter; // D) Converts emulated sample rate to system native rate, sends to output =>
+      var output;    // E) Plays sample stream, acts as a sink, is thus the source of all system timing.
+
+function setup(body){
+        // Initialize synthesizer
+        synth = new SquawkSynth();
+        // Initialize audio output
+        try {
+        	output = new WebAudioStream();
+        	mute.onchange();
+        } catch(e) {
+        	alert(
+        		"The Web Audio API is not supported in this here browser." + '\n' +
+        		"You can still work, you just won't get any sound."        + '\n' +
+        		"Come back using Chrome, FireFox or Safari?"               + '\n' +
+        		"Sorry for the inconvenience! =)"                          + '\n' +
+        	""                                                         + '\n' +
+        	"With love,"                                               + '\n' +
+        	"-devs"
+        	);
+        	return;
+        }
+        // Initialize sample rate conversion
+        converter = new SampleRateConverter(emulateSampleRate, output.getSampleRate());
+
+        // drag and drop
+        body.ondragover = function() {
+        	return false;
+        };
+        body.ondragend = function() {
+        	return false;
+        };
+        body.ondrop = function(e) {
+            e.preventDefault(); //prevent browser from showing dropped file
+            //read file and get its content
+            var file = e.dataTransfer.files[0],
+            reader = new FileReader();
+            reader.onload = function(event) {
+            	var music = event.target.result;
+                // Remove all unwanted text, retain comma seperated text
+                music = music.replace(/\/\/"[tT]rack/g, 'Track');
+                music = music.replace(/\/\*[\s\S]*?\*\/|([^:]|^)\/\/.*$|([^:]|^)\#.*$|([^:]|^)Song.*$|([^:]|^)}.*$/gm, '');
+                music = music.replace(/"(?![a-zA-Z])/gm, ',');
+                music = music.replace(/[\s]/g, '');
+                music = music.replace(/Track/g, 'Track ');
+                // Create array from music var minus trailing comma
+                music = music.slice(0, -1).split(',');
+                for(var i = 0; i < music.length; i++){
+                    if(music[i][0] !== 'T'){ // skip parsing for Track strings
+                        // parse to int and calculate if necessary
+                        if(music[i].indexOf('+') !== -1){
+                        	for(var j = 0, calc = 0, split = music[i].split('+'); j < split.length; j++){
+                        		calc += parseInt(split[j]);
+                        	}
+                        	music[i] = calc;
+                        }
+                        else{
+                        	music[i] = parseInt(music[i]);
+                        }
+                    }
+                }
+                playSong(music);
+            };
+            reader.readAsText(file);
+            return false;
+        };
+    }
+
+      // Let's get this show on the road!
+      function playSong(song) {
+        // Initialize player
+        player = new SquawkStream(emulateSampleRate);
+        player.setSource(song);
+        // Build graph [player]=>[synth]=>[converter]=>[output]
+        // Output is the sink, and drives/times the entire graph.
+        synth.connect(player);
+        converter.connect(synth);
+        output.connect(converter);
+        // Begin playback (?)
+        output.play(!pause.checked);
+        //setInterval(function(){if(player.getChannelActiveMute() == 0 && player.getNoRepeat){output.pause(true);}}, 10);
+        setInterval(
+        	function(){
+        		if(player.getChannelActiveMute() == 0){
+        			var nr = player.getNoRepeat();
+        			if(nr[1] !== 0){
+        				for(var i = 0; i < 4; i++){
+        					song[nr[1]+i] = nr[2+i];
+        				}
+        			} 
+        			nr[0] ? output.pause(true) : playSong(song);
+	        	}
+	        }, 10);
+        // Refresh stats every 10mS or so
+        setInterval(refreshStats, 10);
+    }
+
+    function refreshStats() {
+    	count.innerHTML = player.getTickCount().toString();
+        //active.innerHTML = player.getChannelActiveMute().toString();
+        ch0.innerHTML = (player.getChannelActiveMute() & 0x10) === 16 ? 'ON' : 'OFF';
+        ch1.innerHTML = (player.getChannelActiveMute() & 0x20) === 32 ? 'ON' : 'OFF';
+        ch2.innerHTML = (player.getChannelActiveMute() & 0x40) === 64 ? 'ON' : 'OFF';
+        ch3.innerHTML = (player.getChannelActiveMute() & 0x80) === 128? 'ON' : 'OFF';
+    }
+
+    </script>
+</head>
+
+<body onload="setup(this);" style="font-family: Courier New; text-align: center;">
+	<div class="shadow">
+		<div class="container" style="height:1070px">
+
+			<header>
+				<div style="position:relative">
+					<div class="shape_0" style="left:25px;top:-1px;width:700px;height:64px;z-index:0;position:absolute;">
+						<img src="images/tittle.gif" height="64" width="700" />
+					</div>
+				</div>
+				<div style="position:relative">
+					<a href="http://www.team-arg.org/index.html">
+						<div class="shape_1" style="left:25px;top:63px;width:88px;height:28px;z-index:1;position:absolute;">
+							<img src="images/home.gif" height="28" width="88" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<a href="http://www.team-arg.org/more-about.html">
+						<div class="shape_2" style="left:637px;top:63px;width:88px;height:28px;z-index:2;position:absolute;">
+							<img src="images/more.gif" height="28" width="88" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<a href="http://www.team-arg.org/news.html">
+						<div class="shape_3" style="left:141px;top:63px;width:88px;height:28px;z-index:3;position:absolute;">
+							<img src="images/news.gif" height="28" width="88" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<a href="http://www.team-arg.org/games.html">
+						<div class="shape_4" style="left:251px;top:63px;width:108px;height:28px;z-index:4;position:absolute;">
+							<img src="images/games.gif" height="28" width="108" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<a href="http://www.team-arg.org/demos.html">
+						<div class="shape_5" style="left:381px;top:63px;width:108px;height:28px;z-index:5;position:absolute;">
+							<img src="images/demos.gif" height="28" width="108" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<a href="http://www.team-arg.org/tools.html">
+						<div class="shape_6" style="left:511px;top:63px;width:108px;height:28px;z-index:6;position:absolute;">
+							<img src="images/tools.gif" height="28" width="108" />
+						</div>
+					</a>
+				</div>
+			</header>
+
+
+			<div class="content" data-minheight="900">
+				<div style="position:relative">
+					<div class="shape_13" style="left:25px;top:275px;width:700px;height:5px;z-index:13;position:absolute;">
+						<img src="images/longLine-16.gif" height="5" width="700" />
+					</div>
+				</div>
+				<div style="position:relative">
+					<div class="shape_14" style="left:25px;top:120px;width:700px;height:96px;z-index:14;position:absolute;">
+						<img src="images/ATMwebplayer.png" height="96" width="700" />
+					</div>
+				</div>
+				<div style="position:relative">
+					<div class="shape_15" style="left:367px;top:235px;width:15px;height:21px;z-index:15;position:absolute;">
+						<img src="images/line.gif" height="21" width="15" />
+					</div>
+				</div>
+				<div style="position:relative">
+					<a href="http://www.team-arg.org/atmweb-manual.html" data-linkuuid="EF5610B93D9C4A9AB7C069F49A7532D2">
+						<div class="shape_16" style="left:401px;top:235px;width:96px;height:21px;z-index:16;position:absolute;">
+							<img src="images/manual.gif" height="21" width="96" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<a href="https://teamarg.github.io/ATMwebplayer/">
+						<div class="shape_17" style="left:283px;top:235px;width:66px;height:21px;z-index:17;position:absolute;">
+							<img src="images/Tool.gif" height="21" width="66" />
+						</div>
+					</a>
+				</div>
+
+
+			<div style="position:relative">
+				<div class="shape_18" style="left:24px;top:559px;width:702px;height:162px;z-index:18;position:absolute;">
+					<div style="margin: 4.32px 2.16px 4.32px 2.16px; ">
+						<p style="line-height:18px;text-align:center;margin-top:0px;margin-bottom:0px;" class="Style2">
+							<br />
+						</p>
+						<p style="line-height:50.4px;text-align:center;margin-bottom:0px;margin-top:0px;" class="Style65">
+							Drop your song.h file here
+						</p>
+					</div>
+				</div>
+			</div>
+
+				<div style="position:relative">
+					<div class="shape_19" style="left:25px;top:350px;width:700px;height:160px;z-index:17;position:absolute;">
+						<div style="margin: 4.32px 2.16px 4.32px 2.16px; ">
+							<p style="line-height:21px;text-align:center;margin-top:0px;margin-bottom:0px;" class="Style23">
+								<span>Ticks: </span><span id="count">0</span>
+							</p>
+							<p style="line-height:21px;" class="Style2">
+								<br />
+							</p>
+							<p style="line-height:21px;text-align:center;margin-bottom:0px;margin-top:0px;" class="Style23">
+								Ch0: 
+								<span class="Style31" id="ch0">OFF</span>
+								<span class="Style66">&nbsp;&nbsp;&nbsp;&nbsp;Ch1: </span>
+								<span class="Style31" id="ch1">OFF</span>
+								<span class="Style66">&nbsp;&nbsp;&nbsp;&nbsp;Ch2: </span>
+								<span class="Style31" id="ch2">OFF</span>
+								<span class="Style66">&nbsp;&nbsp;&nbsp;&nbsp;Ch3: </span>
+								<span class="Style31" id="ch3">OFF</span>
+							</p>
+							<p style="line-height:21px;" class="Style2">
+								<br />
+							</p>
+							<p style="line-height:21px;text-align:center;margin-bottom:0px;margin-top:0px;" class="Style23">
+								<input type="checkbox" id="mute" onchange="output.setVolume(this.checked ? 0.0 : masterVolume);">
+								MUTE FOR THE LOVE OF ALL THINGS SACRED!
+							</input>
+							</p>
+							<p style="line-height:21px;text-align:center;margin-bottom:0px;margin-top:0px;" class="Style23">
+								<input type="checkbox" id="pause" onchange="output.pause(this.checked);">
+								PAUSE MAKES THE GEARS STOP TURNING...
+							</input>
+							</p>
+						</div>
+					</div>
+				</div>
+
+
+				<div style="position:relative">
+					<div class="shape_20" style="left:25px;top:766px;width:700px;height:198px;z-index:18;position:absolute;">
+						<div style="margin: 4.32px 2.16px 4.32px 2.16px; ">
+							<p style="line-height:21px;text-align:center;margin-top:0px;margin-bottom:0px;" class="Style23">
+								Before dropping a new file, better refresh the page, so all gears are reset !
+							</p>
+							<p style="line-height:21px;" class="Style2">
+								<br />
+							</p>
+							<p style="line-height:21px;text-align:center;margin-bottom:0px;margin-top:0px;" class="Style23">
+								Don't have a test song yet? why don't you try these:
+							</p>
+							<p style="line-height:21px;" class="Style2">
+								<br />
+							</p>
+							<p style="line-height:21px;text-align:center;margin-bottom:0px;margin-top:0px;" class="Style23">
+								<a href="http://www.team-arg.org/ewExternalFiles/song1.h" class="linkStyle_69" download>
+									song1.h
+								</a>
+							</p>
+							<p style="line-height:21px;text-align:center;margin-bottom:0px;margin-top:0px;" class="Style23">
+								<a href="http://www.team-arg.org/ewExternalFiles/song2.h" class="linkStyle_69" download>
+									song2.h
+								</a>
+							</p>
+							<p style="line-height:21px;" class="Style2">
+								<br />
+							</p>
+							<p style="line-height:21px;text-align:center;margin-bottom:0px;margin-top:0px;" class="Style23">
+								Download a file and then drop it back on the page.
+							</p>
+							<p style="line-height:21px;" class="Style2">
+								<br />
+							</p>
+						</div>
+					</div>
+				</div>
+			</div>
+
+
+			<footer data-top='1000' data-height='70'>
+				<div style="position:relative">
+					<a href="http://www.twitter.com/TEAMarg_org">
+						<div class="shape_7" style="left:25px;top:1020px;width:48px;height:48px;z-index:7;position:absolute;">
+							<img src="images/twitter.gif" height="48" width="48" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<a href="https://www.youtube.com/channel/UC5PtrkZ9BaCrLIW8WXe2_XA">
+						<div class="shape_8" style="left:85px;top:1020px;width:48px;height:48px;z-index:8;position:absolute;">
+							<img src="images/youtube.gif" height="48" width="48" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<div class="shape_9" style="left:629px;top:1020px;width:96px;height:48px;z-index:9;position:absolute;">
+						<img src="images/8bit-games.gif" height="48" width="96" />
+					</div>
+				</div>
+				<div style="position:relative">
+					<div class="shape_10" style="left:25px;top:1000px;width:700px;height:5px;z-index:10;position:absolute;">
+						<img src="images/longLine.gif" height="5" width="700" />
+					</div>
+				</div>
+				<div style="position:relative">
+					<a href="https://github.com/TEAMarg">
+						<div class="shape_11" style="left:145px;top:1020px;width:48px;height:48px;z-index:11;position:absolute;">
+							<img src="images/github.gif" height="48" width="48" />
+						</div>
+					</a>
+				</div>
+				<div style="position:relative">
+					<a href="https://www.facebook.com/TEAMArduinoRetroGaming/">
+						<div class="shape_12" style="left:205px;top:1020px;width:48px;height:48px;z-index:12;position:absolute;">
+							<img src="images/facebook.gif" height="48" width="48" />
+						</div>
+					</a>
+				</div>
+			</footer>
+		</div>
+	</div>
+</body>
+</html>
